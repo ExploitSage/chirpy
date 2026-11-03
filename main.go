@@ -1,16 +1,25 @@
 package main
 
 import (
+    "os"
     "fmt"
     "strings"
     "slices"
+    "encoding/json"
     "net/http"
     "sync/atomic"
-    "encoding/json"
+    "database/sql"
+
+    "github.com/joho/godotenv"
+
+    "github.com/exploitsage/chirpy/internal/database"
 )
+
+import _ "github.com/lib/pq"
 
 type apiConfig struct {
     fileserverHits atomic.Int32
+    queries *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -58,7 +67,12 @@ func cleanString(msg string) string {
 }
 
 func main() {
-    apiCfg := apiConfig{}
+    godotenv.Load()
+    dbURL := os.Getenv("DB_URL")
+    db, _ := sql.Open("postgres", dbURL)
+    dbQueries := database.New(db)
+
+    apiCfg := apiConfig{queries: dbQueries}
     serveMux := http.NewServeMux()
 
     serveMux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", http.FileServer(http.Dir("./")))))
