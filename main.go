@@ -3,14 +3,17 @@ package main
 import (
     "os"
     "fmt"
-    "strings"
+    "time"
     "slices"
-    "encoding/json"
+    "strings"
+    "context"
     "net/http"
+    "encoding/json"
     "sync/atomic"
     "database/sql"
 
     "github.com/joho/godotenv"
+	"github.com/google/uuid"
 
     "github.com/exploitsage/chirpy/internal/database"
 )
@@ -20,6 +23,13 @@ import _ "github.com/lib/pq"
 type apiConfig struct {
     fileserverHits atomic.Int32
     queries *database.Queries
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -69,6 +79,7 @@ func cleanString(msg string) string {
 func main() {
     godotenv.Load()
     dbURL := os.Getenv("DB_URL")
+    platform := os.Getenv("PLATFORM")
     db, _ := sql.Open("postgres", dbURL)
     dbQueries := database.New(db)
 
@@ -110,6 +121,34 @@ func main() {
         }
         respondWithJSON(res, 200, chirpResponse)
     })
+
+    serveMux.HandleFunc("POST /api/users", func(res http.ResponseWriter, req *http.Request) {
+        type emails struct {
+            Email string `json:"email"`
+        }
+
+        decoder := json.NewDecoder(req.Body)
+        email := emails{}
+        err := decoder.Decode(&email)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Parse JSON Body")
+            return
+        }
+
+        dbUser, err := dbQueries.CreateUser(context.Background(), email.Email)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Create User")
+            return
+        }
+        newUser := User{
+            ID: dbUser.ID,
+            CreatedAt: dbUser.CreatedAt,
+            UpdatedAt: dbUser.UpdatedAt,
+            Email: dbUser.Email,
+        }
+
+        respondWithJSON(res, 201, newUser)
+    })
     
     serveMux.HandleFunc("GET /admin/metrics", func(res http.ResponseWriter, req *http.Request) {
         res.Header().Add("Content-Type", "text/html; charset=utf-8")
@@ -125,7 +164,12 @@ func main() {
     })
     
     serveMux.HandleFunc("POST /admin/reset", func(res http.ResponseWriter, req *http.Request) {
+        if(platform != "dev") {
+            respondWithError(res, 403, "Unavailable outside dev environment")
+            return
+        }
         apiCfg.fileserverHits.Store(0)
+        _ = dbQueries.DeleteUsers(context.Background())
         res.Header().Add("Content-Type", "text/plain; charset=utf-8")
         res.WriteHeader(200)
         res.Write([]byte("OK"))
