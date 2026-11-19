@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
     "github.com/exploitsage/chirpy/internal/database"
+    "github.com/exploitsage/chirpy/internal/auth"
 )
 
 import _ "github.com/lib/pq"
@@ -102,24 +103,72 @@ func main() {
         res.Write([]byte("OK"))
     })
 
-    serveMux.HandleFunc("POST /api/users", func(res http.ResponseWriter, req *http.Request) {
-        type emails struct {
+    serveMux.HandleFunc("POST /api/login", func(res http.ResponseWriter, req *http.Request) {
+        type reqBody struct {
             Email string `json:"email"`
+            Password string `json:"password"`
         }
 
         decoder := json.NewDecoder(req.Body)
-        email := emails{}
-        err := decoder.Decode(&email)
+        loginParams := reqBody{}
+        err := decoder.Decode(&loginParams)
         if err != nil {
             respondWithError(res, 500, "Failed to Parse JSON Body")
             return
         }
 
-        dbUser, err := dbQueries.CreateUser(context.Background(), email.Email)
+        dbUser, err := dbQueries.ReadUserByEmail(context.Background(), loginParams.Email)
+        if err != nil {
+            respondWithError(res, 401, "Incorrect email or password")
+            return
+        }
+
+        authenticated, err := auth.CheckPasswordHash(loginParams.Password, dbUser.HashedPassword)
+        if err != nil || authenticated == false {
+            respondWithError(res, 401, "Incorrect email or password")
+            return
+        }
+
+        user := User{
+            ID: dbUser.ID,
+            CreatedAt: dbUser.CreatedAt,
+            UpdatedAt: dbUser.UpdatedAt,
+            Email: dbUser.Email,
+        }
+
+        respondWithJSON(res, 200, user)
+    })
+
+    serveMux.HandleFunc("POST /api/users", func(res http.ResponseWriter, req *http.Request) {
+        type reqBody struct {
+            Email string `json:"email"`
+            Password string `json:"password"`
+        }
+
+        decoder := json.NewDecoder(req.Body)
+        userParams := reqBody{}
+        err := decoder.Decode(&userParams)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Parse JSON Body")
+            return
+        }
+
+        hashedPassword, err := auth.HashPassword(userParams.Password)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Hash Provided Password")
+            return
+        }
+        createUserParams := database.CreateUserParams{
+            Email: userParams.Email,
+            HashedPassword: hashedPassword,
+        }
+
+        dbUser, err := dbQueries.CreateUser(context.Background(), createUserParams)
         if err != nil {
             respondWithError(res, 500, "Failed to Create User")
             return
         }
+
         newUser := User{
             ID: dbUser.ID,
             CreatedAt: dbUser.CreatedAt,
@@ -131,33 +180,36 @@ func main() {
     })
 
     serveMux.HandleFunc("POST /api/chirps", func(res http.ResponseWriter, req *http.Request) {
-        type bodies struct {
+        type reqBody struct {
             Body string `json:"body"`
             UserID uuid.UUID `json:"user_id"`
         }
 
         decoder := json.NewDecoder(req.Body)
-        body := bodies{}
-        err := decoder.Decode(&body)
+        chirpParams := reqBody{}
+        err := decoder.Decode(&chirpParams)
         if err != nil {
             respondWithError(res, 500, "Failed to Parse JSON Body")
             return
         }
 
-        if len(body.Body) > 140 {
+        if len(chirpParams.Body) > 140 {
             respondWithError(res, 400, "Chirp is too long")
             return
         }
+
         createChirpParams := database.CreateChirpParams{
-            Body: cleanString(body.Body),
-            UserID: body.UserID,
+            Body: cleanString(chirpParams.Body),
+            UserID: chirpParams.UserID,
 
         }
+
         dbChirp, err := dbQueries.CreateChirp(context.Background(), createChirpParams)
         if err != nil {
             respondWithError(res, 500, "Failed to Create Chirp")
             return
         }
+
         newChirp := Chirp{
             ID: dbChirp.ID,
             CreatedAt: dbChirp.CreatedAt,
