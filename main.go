@@ -102,34 +102,6 @@ func main() {
         res.Write([]byte("OK"))
     })
 
-    // serveMux.HandleFunc("POST /api/validate_chirp", func(res http.ResponseWriter, req *http.Request) {
-    //     type chirps struct {
-    //         Body string `json:"body"`
-    //     }
-
-    //     type chirpResponses struct {
-    //         CleanedBody string `json:"cleaned_body"`
-    //     }
-
-    //     decoder := json.NewDecoder(req.Body)
-    //     chirp := chirps{}
-    //     err := decoder.Decode(&chirp)
-    //     if err != nil {
-    //         respondWithError(res, 500, "Failed to Parse JSON Body")
-    //         return
-    //     }
-        
-    //     if len(chirp.Body) > 140 {
-    //         respondWithError(res, 400, "Chirp is too long")
-    //         return
-    //     }
-
-    //     chirpResponse := chirpResponses{
-    //         CleanedBody: cleanString(chirp.Body),
-    //     }
-    //     respondWithJSON(res, 200, chirpResponse)
-    // })
-
     serveMux.HandleFunc("POST /api/users", func(res http.ResponseWriter, req *http.Request) {
         type emails struct {
             Email string `json:"email"`
@@ -195,6 +167,27 @@ func main() {
         }
 
         respondWithJSON(res, 201, newChirp)
+    })
+
+    serveMux.HandleFunc("GET /api/chirps", func(res http.ResponseWriter, req *http.Request) {
+        dbChirps, err := dbQueries.ReadChirps(context.Background())
+        if err != nil {
+            respondWithError(res, 500, "Failed to Read Chirps")
+            return
+        }
+
+        chirps := []Chirp{}
+        for _, dbChirp := range dbChirps {
+            chirps = append(chirps, Chirp{
+                ID: dbChirp.ID,
+                CreatedAt: dbChirp.CreatedAt,
+                UpdatedAt: dbChirp.UpdatedAt,
+                Body: dbChirp.Body,
+                UserID: dbChirp.UserID,
+            })
+        }
+
+        respondWithJSON(res, 200, chirps)
     })
     
     serveMux.HandleFunc("GET /admin/metrics", func(res http.ResponseWriter, req *http.Request) {
