@@ -189,6 +189,30 @@ func main() {
 
         respondWithJSON(res, 200, chirps)
     })
+
+    serveMux.HandleFunc("GET /api/chirps/{chirpID}", func(res http.ResponseWriter, req *http.Request) {
+        chirpID, err := uuid.Parse(req.PathValue("chirpID"))
+        if err != nil {
+            respondWithError(res, 500, "Failed to Parse Chirp ID")
+            return
+        }
+
+        dbChirp, err := dbQueries.ReadChirp(context.Background(), chirpID)
+        if err != nil {
+            respondWithError(res, 404, "Failed to Find Chirp")
+            return
+        }
+
+        chirp := Chirp{
+            ID: dbChirp.ID,
+            CreatedAt: dbChirp.CreatedAt,
+            UpdatedAt: dbChirp.UpdatedAt,
+            Body: dbChirp.Body,
+            UserID: dbChirp.UserID,
+        }
+
+        respondWithJSON(res, 200, chirp)
+    })
     
     serveMux.HandleFunc("GET /admin/metrics", func(res http.ResponseWriter, req *http.Request) {
         res.Header().Add("Content-Type", "text/html; charset=utf-8")
