@@ -4,6 +4,7 @@ import (
     "os"
     "fmt"
     "time"
+    "sort"
     "slices"
     "strings"
     "context"
@@ -110,8 +111,8 @@ func main() {
 
     serveMux.HandleFunc("POST /api/login", func(res http.ResponseWriter, req *http.Request) {
         type reqBody struct {
-            Email            string `json:"email"`
-            Password         string `json:"password"`
+            Email    string `json:"email"`
+            Password string `json:"password"`
         }
 
         decoder := json.NewDecoder(req.Body)
@@ -168,7 +169,7 @@ func main() {
 
     serveMux.HandleFunc("POST /api/refresh", func(res http.ResponseWriter, req *http.Request) {
         type resBody struct {
-            Token            string `json:"token"`
+            Token string `json:"token"`
         }
 
         refreshToken, err := auth.GetBearerToken(req.Header)
@@ -362,12 +363,37 @@ func main() {
     })
 
     serveMux.HandleFunc("GET /api/chirps", func(res http.ResponseWriter, req *http.Request) {
-        dbChirps, err := dbQueries.ReadChirps(context.Background())
+        authorID, err := uuid.Parse(req.URL.Query().Get("author_id"))
+        if err != nil {
+            authorID = uuid.Nil
+        }
+
+        sortDirection := req.URL.Query().Get("sort")
+        if sortDirection == "" || !slices.Contains([]string{"asc", "desc"}, sortDirection) {
+            sortDirection = "asc"
+        }
+
+        var dbChirps []database.Chirp
+        if authorID == uuid.Nil {
+            dbChirps, err = dbQueries.ReadChirps(context.Background())
+        } else {
+            dbChirps, err = dbQueries.ReadChirpsByAuthor(context.Background(), authorID)
+        }
         if err != nil {
             respondWithError(res, 500, "Failed to Read Chirps")
             return
         }
 
+        if sortDirection == "asc" {
+            sort.Slice(dbChirps, func(i, j int) bool {
+                return dbChirps[i].CreatedAt.Before(dbChirps[j].CreatedAt)
+            })
+        } else {
+            sort.Slice(dbChirps, func(i, j int) bool {
+                return dbChirps[i].CreatedAt.After(dbChirps[j].CreatedAt)
+            })
+        }
+        
         chirps := []Chirp{}
         for _, dbChirp := range dbChirps {
             chirps = append(chirps, Chirp{

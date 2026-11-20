@@ -9,14 +9,21 @@ VALUES (
 )
 RETURNING *;
 
--- name: DeleteChirps :exec
-DELETE FROM chirps;
-
 -- name: ReadChirps :many
 SELECT
     *
 FROM
     chirps
+ORDER BY
+    created_at ASC;
+
+-- name: ReadChirpsByAuthor :many
+SELECT
+    *
+FROM
+    chirps
+WHERE
+    user_id = $1
 ORDER BY
     created_at ASC;
 
@@ -33,3 +40,6 @@ DELETE FROM
     chirps
 WHERE
     id = $1;
+
+-- name: DeleteChirps :exec
+DELETE FROM chirps;
