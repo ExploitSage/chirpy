@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"testing"
     "time"
     "regexp"
+	"testing"
 
 	"github.com/google/uuid"
 )

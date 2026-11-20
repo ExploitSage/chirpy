@@ -8,22 +8,22 @@ import (
     "strings"
     "context"
     "net/http"
-    "encoding/json"
     "sync/atomic"
     "database/sql"
+    "encoding/json"
 
-    "github.com/joho/godotenv"
 	"github.com/google/uuid"
+    "github.com/joho/godotenv"
 
-    "github.com/exploitsage/chirpy/internal/database"
     "github.com/exploitsage/chirpy/internal/auth"
+    "github.com/exploitsage/chirpy/internal/database"
 )
 
 import _ "github.com/lib/pq"
 
 type apiConfig struct {
     fileserverHits atomic.Int32
-    queries *database.Queries
+    queries        *database.Queries
 }
 
 type User struct {
@@ -104,7 +104,6 @@ func main() {
     serveMux.HandleFunc("GET /api/healthz", func(res http.ResponseWriter, req *http.Request) {
         res.Header().Add("Content-Type", "text/plain; charset=utf-8")
         res.WriteHeader(200)
-        res.Write([]byte("OK"))
     })
 
     serveMux.HandleFunc("POST /api/login", func(res http.ResponseWriter, req *http.Request) {
@@ -251,6 +250,59 @@ func main() {
         respondWithJSON(res, 201, newUser)
     })
 
+    serveMux.HandleFunc("PUT /api/users", func(res http.ResponseWriter, req *http.Request) {
+        type reqBody struct {
+            Email string `json:"email"`
+            Password string `json:"password"`
+        }
+
+        decoder := json.NewDecoder(req.Body)
+        userParams := reqBody{}
+        err := decoder.Decode(&userParams)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Parse JSON Body")
+            return
+        }
+
+        token, err := auth.GetBearerToken(req.Header)
+        if err != nil {
+            respondWithError(res, 401, err.Error())
+            return
+        }
+
+        userID, err := auth.ValidateJWT(token, tokenSecret)
+        if err != nil {
+            respondWithError(res, 401, err.Error())
+            return
+        }
+
+        hashedPassword, err := auth.HashPassword(userParams.Password)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Hash Provided Password")
+            return
+        }
+        updateUserParams := database.UpdateUserParams{
+            ID: userID,
+            Email: userParams.Email,
+            HashedPassword: hashedPassword,
+        }
+
+        dbUser, err := dbQueries.UpdateUser(context.Background(), updateUserParams)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Update User")
+            return
+        }
+
+        updatedUser := User{
+            ID: dbUser.ID,
+            CreatedAt: dbUser.CreatedAt,
+            UpdatedAt: dbUser.UpdatedAt,
+            Email: dbUser.Email,
+        }
+
+        respondWithJSON(res, 200, updatedUser)
+    })
+
     serveMux.HandleFunc("POST /api/chirps", func(res http.ResponseWriter, req *http.Request) {
         type reqBody struct {
             Body   string    `json:"body"`
@@ -348,6 +400,45 @@ func main() {
 
         respondWithJSON(res, 200, chirp)
     })
+
+    serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", func(res http.ResponseWriter, req *http.Request) {
+        chirpID, err := uuid.Parse(req.PathValue("chirpID"))
+        if err != nil {
+            respondWithError(res, 500, "Failed to Parse Chirp ID")
+            return
+        }
+
+        dbChirp, err := dbQueries.ReadChirp(context.Background(), chirpID)
+        if err != nil {
+            respondWithError(res, 404, "Failed to Find Chirp")
+            return
+        }
+
+        token, err := auth.GetBearerToken(req.Header)
+        if err != nil {
+            respondWithError(res, 401, err.Error())
+            return
+        }
+
+        userID, err := auth.ValidateJWT(token, tokenSecret)
+        if err != nil {
+            respondWithError(res, 401, err.Error())
+            return
+        }
+
+        if userID != dbChirp.UserID {
+            respondWithError(res, 403, "You are not the Chirp's Author")
+            return
+        }
+
+        err = dbQueries.DeleteChirp(context.Background(), dbChirp.ID)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Delete Chirp")
+            return
+        }
+
+        res.WriteHeader(204)
+    })
     
     serveMux.HandleFunc("GET /admin/metrics", func(res http.ResponseWriter, req *http.Request) {
         res.Header().Add("Content-Type", "text/html; charset=utf-8")
@@ -371,7 +462,6 @@ func main() {
         _ = dbQueries.DeleteUsers(context.Background())
         res.Header().Add("Content-Type", "text/plain; charset=utf-8")
         res.WriteHeader(200)
-        res.Write([]byte("OK"))
     })
     
     server := http.Server{

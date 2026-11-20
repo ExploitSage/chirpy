@@ -1,16 +1,16 @@
 package auth
 
 import (
-	"time"
 	"fmt"
+	"time"
 	"strings"
-	"encoding/hex"
-	"crypto/rand"
 	"net/http"
+	"crypto/rand"
+	"encoding/hex"
 
 	"github.com/google/uuid"
-	"github.com/alexedwards/argon2id"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/alexedwards/argon2id"
 )
 
 func HashPassword(password string) (string, error) {
