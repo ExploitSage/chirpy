@@ -31,6 +31,7 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	Email        string    `json:"email"`
+    IsChirpyRed  bool      `json:"is_chirpy_red"`
     Token        string    `json:"token"`
     RefreshToken string    `json:"refresh_token"`
 }
@@ -91,7 +92,8 @@ func main() {
     godotenv.Load()
     dbURL := os.Getenv("DB_URL")
     platform := os.Getenv("PLATFORM")
-    tokenSecret := os.Getenv("JWTSECRET")
+    tokenSecret := os.Getenv("TOKEN_SECRET")
+    polkaKey := os.Getenv("POLKA_KEY")
 
     db, _ := sql.Open("postgres", dbURL)
     dbQueries := database.New(db)
@@ -156,6 +158,7 @@ func main() {
             CreatedAt: dbUser.CreatedAt,
             UpdatedAt: dbUser.UpdatedAt,
             Email: dbUser.Email,
+            IsChirpyRed: dbUser.IsChirpyRed,
             Token: token,
             RefreshToken: dbAccessToken.Token,
         }
@@ -245,6 +248,7 @@ func main() {
             CreatedAt: dbUser.CreatedAt,
             UpdatedAt: dbUser.UpdatedAt,
             Email: dbUser.Email,
+            IsChirpyRed: dbUser.IsChirpyRed,
         }
 
         respondWithJSON(res, 201, newUser)
@@ -298,6 +302,7 @@ func main() {
             CreatedAt: dbUser.CreatedAt,
             UpdatedAt: dbUser.UpdatedAt,
             Email: dbUser.Email,
+            IsChirpyRed: dbUser.IsChirpyRed,
         }
 
         respondWithJSON(res, 200, updatedUser)
@@ -440,6 +445,53 @@ func main() {
         res.WriteHeader(204)
     })
     
+    serveMux.HandleFunc("POST /api/polka/webhooks", func(res http.ResponseWriter, req *http.Request) {
+        type reqBody struct {
+            Event string `json:"event"`
+            Data  struct {
+		        UserID uuid.UUID `json:"user_id"`
+	        } `json:"data"`
+        }
+
+        decoder := json.NewDecoder(req.Body)
+        polkaParams := reqBody{}
+        err := decoder.Decode(&polkaParams)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Parse JSON Body")
+            return
+        }
+
+        key, err := auth.GetAPIKey(req.Header)
+        if err != nil {
+            respondWithError(res, 401, err.Error())
+            return
+        }
+
+        if key != polkaKey {
+            respondWithError(res, 401, "Unauthorized")
+            return
+        }
+
+        if polkaParams.Event != "user.upgraded" {
+            res.WriteHeader(204)
+            return
+        }
+
+        updateUserIsChirpyRedParams := database.UpdateUserIsChirpyRedParams{
+            IsChirpyRed: true,
+            ID: polkaParams.Data.UserID,
+
+        }
+
+        _, err = dbQueries.UpdateUserIsChirpyRed(context.Background(), updateUserIsChirpyRedParams)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Upgrade User")
+            return
+        }
+
+        res.WriteHeader(204)
+    })
+
     serveMux.HandleFunc("GET /admin/metrics", func(res http.ResponseWriter, req *http.Request) {
         res.Header().Add("Content-Type", "text/html; charset=utf-8")
         res.WriteHeader(200)

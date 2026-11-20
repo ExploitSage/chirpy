@@ -59,6 +59,20 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	return userID, nil
 }
 
+func GetAPIKey(headers http.Header) (string, error) {
+	authHeader := headers.Get("Authorization")
+	if authHeader == "" {
+		return "", fmt.Errorf("Missing Authorization Header")
+	}
+
+	key, found := strings.CutPrefix(authHeader, "ApiKey ")
+	if !found {
+		return "", fmt.Errorf("Invalid or missing ApiKey prefix")
+	}
+
+	return key, nil
+}
+
 func GetBearerToken(headers http.Header) (string, error) {
 	authHeader := headers.Get("Authorization")
 	if authHeader == "" {
