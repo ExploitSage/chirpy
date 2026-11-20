@@ -4,6 +4,8 @@ import (
 	"time"
 	"fmt"
 	"strings"
+	"encoding/hex"
+	"crypto/rand"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -69,4 +71,13 @@ func GetBearerToken(headers http.Header) (string, error) {
 	}
 
 	return token, nil
+}
+
+func MakeRefreshToken() string {
+	key := make([]byte, 32)
+	rand.Read(key)
+
+	token := hex.EncodeToString(key)
+
+	return token
 }

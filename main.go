@@ -27,11 +27,12 @@ type apiConfig struct {
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-    Token     string    `json:"token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+    Token        string    `json:"token"`
+    RefreshToken string    `json:"refresh_token"`
 }
 
 type Chirp struct {
@@ -110,7 +111,6 @@ func main() {
         type reqBody struct {
             Email            string `json:"email"`
             Password         string `json:"password"`
-            ExpiresInSeconds int    `json:"expires_in_seconds"`
         }
 
         decoder := json.NewDecoder(req.Body)
@@ -133,13 +133,19 @@ func main() {
             return
         }
 
-        var tokenDuration time.Duration
-        if loginParams.ExpiresInSeconds > 0 && loginParams.ExpiresInSeconds < 3600 {
-            tokenDuration = time.Duration(loginParams.ExpiresInSeconds) * time.Second
-        } else {
-            tokenDuration = time.Duration(1) * time.Hour
+        accessToken := auth.MakeRefreshToken()
+        createRefreshTokenParams := database.CreateRefreshTokenParams{
+            Token: accessToken,
+            UserID: dbUser.ID,
         }
 
+        dbAccessToken, err := dbQueries.CreateRefreshToken(context.Background(), createRefreshTokenParams)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Create Refresh Token")
+            return
+        }
+        
+        tokenDuration := time.Duration(1) * time.Hour
         token, err := auth.MakeJWT(dbUser.ID, tokenSecret, tokenDuration)
         if err != nil {
             respondWithError(res, 500, "Failed to Generate Bearer Token")
@@ -152,9 +158,57 @@ func main() {
             UpdatedAt: dbUser.UpdatedAt,
             Email: dbUser.Email,
             Token: token,
+            RefreshToken: dbAccessToken.Token,
         }
 
         respondWithJSON(res, 200, user)
+    })
+
+    serveMux.HandleFunc("POST /api/refresh", func(res http.ResponseWriter, req *http.Request) {
+        type resBody struct {
+            Token            string `json:"token"`
+        }
+
+        refreshToken, err := auth.GetBearerToken(req.Header)
+        if err != nil {
+            respondWithError(res, 500, err.Error())
+            return
+        }
+
+        dbRefreshToken, err := dbQueries.ReadRefreshTokenByToken(context.Background(), refreshToken)
+        if err != nil || dbRefreshToken.RevokedAt.Valid || dbRefreshToken.ExpiresAt.Before(time.Now()) {
+            respondWithError(res, 401, "Unauthorized")
+            return
+        }
+
+        tokenDuration := time.Duration(1) * time.Hour
+        token, err := auth.MakeJWT(dbRefreshToken.UserID, tokenSecret, tokenDuration)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Generate Bearer Token")
+            return
+        }
+
+        newToken := resBody{
+            Token: token,
+        }
+
+        respondWithJSON(res, 200, newToken)
+    })
+
+    serveMux.HandleFunc("POST /api/revoke", func(res http.ResponseWriter, req *http.Request) {
+        refreshToken, err := auth.GetBearerToken(req.Header)
+        if err != nil {
+            respondWithError(res, 500, err.Error())
+            return
+        }
+
+        _, err = dbQueries.UpdateRevokeRefreshToken(context.Background(), refreshToken)
+        if err != nil {
+            respondWithError(res, 500, err.Error())
+            return
+        }
+
+        res.WriteHeader(204)
     })
 
     serveMux.HandleFunc("POST /api/users", func(res http.ResponseWriter, req *http.Request) {
