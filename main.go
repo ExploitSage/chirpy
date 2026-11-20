@@ -31,6 +31,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+    Token     string    `json:"token"`
 }
 
 type Chirp struct {
@@ -89,6 +90,8 @@ func main() {
     godotenv.Load()
     dbURL := os.Getenv("DB_URL")
     platform := os.Getenv("PLATFORM")
+    tokenSecret := os.Getenv("JWTSECRET")
+
     db, _ := sql.Open("postgres", dbURL)
     dbQueries := database.New(db)
 
@@ -105,8 +108,9 @@ func main() {
 
     serveMux.HandleFunc("POST /api/login", func(res http.ResponseWriter, req *http.Request) {
         type reqBody struct {
-            Email string `json:"email"`
-            Password string `json:"password"`
+            Email            string `json:"email"`
+            Password         string `json:"password"`
+            ExpiresInSeconds int    `json:"expires_in_seconds"`
         }
 
         decoder := json.NewDecoder(req.Body)
@@ -129,11 +133,25 @@ func main() {
             return
         }
 
+        var tokenDuration time.Duration
+        if loginParams.ExpiresInSeconds > 0 && loginParams.ExpiresInSeconds < 3600 {
+            tokenDuration = time.Duration(loginParams.ExpiresInSeconds) * time.Second
+        } else {
+            tokenDuration = time.Duration(1) * time.Hour
+        }
+
+        token, err := auth.MakeJWT(dbUser.ID, tokenSecret, tokenDuration)
+        if err != nil {
+            respondWithError(res, 500, "Failed to Generate Bearer Token")
+            return
+        }
+
         user := User{
             ID: dbUser.ID,
             CreatedAt: dbUser.CreatedAt,
             UpdatedAt: dbUser.UpdatedAt,
             Email: dbUser.Email,
+            Token: token,
         }
 
         respondWithJSON(res, 200, user)
@@ -181,8 +199,7 @@ func main() {
 
     serveMux.HandleFunc("POST /api/chirps", func(res http.ResponseWriter, req *http.Request) {
         type reqBody struct {
-            Body string `json:"body"`
-            UserID uuid.UUID `json:"user_id"`
+            Body   string    `json:"body"`
         }
 
         decoder := json.NewDecoder(req.Body)
@@ -193,6 +210,18 @@ func main() {
             return
         }
 
+        token, err := auth.GetBearerToken(req.Header)
+        if err != nil {
+            respondWithError(res, 500, err.Error())
+            return
+        }
+
+        userID, err := auth.ValidateJWT(token, tokenSecret)
+        if err != nil {
+            respondWithError(res, 401, err.Error())
+            return
+        }
+
         if len(chirpParams.Body) > 140 {
             respondWithError(res, 400, "Chirp is too long")
             return
@@ -200,7 +229,7 @@ func main() {
 
         createChirpParams := database.CreateChirpParams{
             Body: cleanString(chirpParams.Body),
-            UserID: chirpParams.UserID,
+            UserID: userID,
 
         }
 

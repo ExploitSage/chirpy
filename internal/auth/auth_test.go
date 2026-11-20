@@ -90,6 +90,22 @@ func TestTokenFail(t *testing.T) {
 	}
 }
 
+// func TestBearerSuccess(t *testing.T) {
+// 	userID := uuid.New()
+// 	tokenSecret := "TestSecret"
+// 	expiresIn := time.Duration(1)*time.Minute
+
+//     token, err := MakeJWT(userID, tokenSecret, expiresIn)
+// 	if err != nil {
+// 		t.Errorf(`MakeJWT(%v, "%v", %v) = %v, %v; want <token>, nil`, userID, tokenSecret, expiresIn, token, err)
+// 	}
+
+// 	tokenID, err := ValidateJWT(token, tokenSecret)
+// 	if tokenID != userID || err != nil {
+// 		t.Errorf(`ValidateJWT(%v, "%v") = %v, %v; want %v, nil`, token, tokenSecret, tokenID, err, userID)
+// 	}
+// }
+
 // TestHelloName calls greetings.Hello with a name, checking
 // for a valid return value.
 // func TestHelloName(t *testing.T) {

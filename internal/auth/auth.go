@@ -2,6 +2,9 @@ package auth
 
 import (
 	"time"
+	"fmt"
+	"strings"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/alexedwards/argon2id"
@@ -52,4 +55,18 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	}
 
 	return userID, nil
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	authHeader := headers.Get("Authorization")
+	if authHeader == "" {
+		return "", fmt.Errorf("Missing Authorization Header")
+	}
+
+	token, found := strings.CutPrefix(authHeader, "Bearer ")
+	if !found {
+		return "", fmt.Errorf("Invalid or missing Bearer prefix")
+	}
+
+	return token, nil
 }
